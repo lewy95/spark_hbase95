@@ -15,7 +15,7 @@ object LoadIntoHBase {
     val sparkContext = new SparkContext(sparkConf)
 
     //获得xml文件
-    val wdTuple = sparkContext.wholeTextFiles("d://mywanda/emr2")
+    val wdTuple = sparkContext.wholeTextFiles("d://mywanda/emr1")
 
     wdTuple.foreachPartition {
       item => {

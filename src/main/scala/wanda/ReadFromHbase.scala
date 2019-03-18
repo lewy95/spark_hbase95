@@ -1,19 +1,36 @@
 package wanda
 
 import org.apache.hadoop.hbase.HBaseConfiguration
+import org.apache.hadoop.hbase.client.Scan
 import org.apache.hadoop.hbase.mapreduce.TableInputFormat
-import org.apache.hadoop.hbase.util.Bytes
+import org.apache.hadoop.hbase.protobuf.ProtobufUtil
+import org.apache.hadoop.hbase.util.{Base64, Bytes}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.xml.XML
 
+case class Patient(idCard: String, genderId: String, ageId: String, addrId: String,
+                   inTimeId: String, inClassId: String, mainDocId: String, outSickId: String)
+
+/**
+  * 解析患者必要信息，作为事实表字段
+  */
 object ReadFromHbase {
 
   def main(args: Array[String]): Unit = {
     val sparkConf = new SparkConf().setMaster("local")
       .setAppName("readFromHbase")
-    val sc = new SparkContext(sparkConf)
+    val sparkContext = new SparkContext(sparkConf)
+
+    val sparkSession = SparkSession.builder()
+      .config(sparkConf)
+      //.config("spark.sql.warehouse.dir", "file:///home/ofo/spark/spark-warehouse")
+      //.enableHiveSupport()
+      .getOrCreate()
+    //导入隐式转换
+    import sparkSession.implicits._
 
     val tableName = "wanda:emr"
     val conf = HBaseConfiguration.create()
@@ -22,33 +39,36 @@ object ReadFromHbase {
     //设置zookeeper连接端口，默认2181
     conf.set("hbase.zookeeper.property.clientPort", "2181")
     conf.set(TableInputFormat.INPUT_TABLE, tableName)
-    conf.set(TableInputFormat.SCAN_COLUMNS, "specific:content")
+
+    //设置扫描内容(住院病案文档)
+    val startRowKey = "RN32_001"
+    val endRowKey = "RN33_001"
+    //设置scan对象，让filter生效
+    val scan = new Scan(Bytes.toBytes(startRowKey), Bytes.toBytes(endRowKey))
+    conf.set(TableInputFormat.SCAN, Base64.encodeBytes(ProtobufUtil.toScan(scan).toByteArray))
 
     //读取数据并转化成rdd
-    val hBaseRDD = sc.newAPIHadoopRDD(conf, classOf[TableInputFormat],
+    val hBaseRDD = sparkContext.newAPIHadoopRDD(conf, classOf[TableInputFormat],
       classOf[org.apache.hadoop.hbase.io.ImmutableBytesWritable],
       classOf[org.apache.hadoop.hbase.client.Result])
 
-    //hBaseRDD.cache()
-
     //创建一个空的ArrayBuffer[(String,String)]，用来存放解析后的信息
     //val patAB: ArrayBuffer[(String,String)] = new ArrayBuffer[(String,String)]
-    //放弃tuple，tuple最多只支持21个元素，若事实表字段太多不适合
-    val patAB: ArrayBuffer[ArrayBuffer[String]] = new ArrayBuffer[ArrayBuffer[String]]
+    //放弃tuple，tuple最多只支持22个元素，若事实表字段太多不适合
+    //采用ArrayBuffer
+    //lazy val patAB: ArrayBuffer[ArrayBuffer[String]] = new ArrayBuffer[ArrayBuffer[String]]
 
-    hBaseRDD.foreach { case (_, result) =>
-      //获取行键
-      val key = Bytes.toString(result.getRow)
-      //通过列族和列名获取列
-      val emrName = Bytes.toString(result.getValue("specific".getBytes, "content".getBytes))
-      if (key != null && emrName != null) {
-        val patInfoArray = getPatientInfo(emrName)
-        patAB += patInfoArray
-      }
+    //获取患者信息的rdd
+    val contentRDD = hBaseRDD.map { case (_, result) =>
+      //解析文档中的患者信息
+      getPatientInfo(Bytes.toString(result.getValue("specific".getBytes, "content".getBytes)))
     }
+    //将患者信息rdd转化为事实表
+    val patientFactDF = contentRDD.map(res => (res(0), res(1), res(2), res(3), res(4), res(5), res(6), res(7)))
+      .toDF("idCard", "genderId", "ageId", "addr", "inTimeId", "inClassId", "mainDocId", "outSickId")
+    patientFactDF.show()
 
-    sc.stop()
-
+    sparkContext.stop()
 
   }
 
@@ -81,29 +101,27 @@ object ReadFromHbase {
     val addr = cityAddr + " " + countyAddr
     pab += addr
 
-    //主治医生id
-    val mainDocId = ((pat \\"authenticator" \"assignedEntity" \"id")
-      .filter(x=>(x \"@extension").text.charAt(2) =='6') \"@extension").text
-    pab += mainDocId
-
     //入院时间
-    val ruyuanTime = (pat \"componentOf" \"encompassingEncounter" \"effectiveTime" \"low" \"@value").text
+    val inTime = (pat \ "componentOf" \ "encompassingEncounter" \ "effectiveTime" \ "low" \ "@value").text
     //以前六位作为id
-    pab += ruyuanTime.substring(0,6)
+    pab += inTime.substring(0, 6)
 
     //入院科室
-    val inClassId = (pat \"componentOf" \"encompassingEncounter" \"location" \"healthCareFacility"\"serviceProviderOrganization"
-      \"asOrganizationPartOf" \"wholeOrganization" \"asOrganizationPartOf" \"wholeOrganization" \"id" \"@extension").head.text
+    val inClassId = (pat \ "componentOf" \ "encompassingEncounter" \ "location" \ "healthCareFacility" \ "serviceProviderOrganization"
+      \ "asOrganizationPartOf" \ "wholeOrganization" \ "asOrganizationPartOf" \ "wholeOrganization" \ "id" \ "@extension").head.text
     pab += inClassId
 
+    //主治医生id
+    val mainDocId = ((pat \\ "authenticator" \ "assignedEntity" \ "id")
+      .filter(x => (x \ "@extension").text.charAt(2) == '2') \ "@extension").text
+    pab += mainDocId
+
     //出院诊断疾病id
-    val outSickId = ((pat \"component" \"structuredBody" \\"component" \"section" \\"entry"
-      \"observation" \"code" \"qualifier" \"name").filter(_.attribute("displayName")
-      .exists(_.text.equals("JB_001"))) \"@displayName").head.text
+    val outSickId = ((pat \ "component" \ "structuredBody" \\ "component" \ "section" \\ "entry"
+      \ "observation" \ "code" \ "qualifier" \ "name").filter(_.attribute("displayName")
+      .exists(_.text.substring(0, 2).equals("JB"))) \ "@displayName").head.text
     pab += outSickId
+
+    pab
   }
-
-  case class Patient(idCard: String, genderId: String, ageId: String, addrId: String,
-                     inTimeId: String, inClassId: String, mainDocId: String, outSickId: String)
-
 }
