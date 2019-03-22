@@ -5,6 +5,9 @@ import org.apache.hadoop.hbase.util.Bytes
 import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
 import org.apache.spark.{SparkConf, SparkContext}
 
+/**
+  * 测试类，与项目无关
+  */
 object HbaseUploadFile {
 
   def main(args: Array[String]): Unit = {

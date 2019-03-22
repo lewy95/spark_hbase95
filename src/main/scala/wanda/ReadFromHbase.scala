@@ -40,7 +40,7 @@ object ReadFromHbase {
     conf.set("hbase.zookeeper.property.clientPort", "2181")
     conf.set(TableInputFormat.INPUT_TABLE, tableName)
 
-    //设置扫描内容(住院病案文档)
+    //设置扫描内容(住院病案文档，rowkey range：RN32_xxx)
     val startRowKey = "RN32_001"
     val endRowKey = "RN33_001"
     //设置scan对象，让filter生效
@@ -63,10 +63,17 @@ object ReadFromHbase {
       //解析文档中的患者信息
       getPatientInfo(Bytes.toString(result.getValue("specific".getBytes, "content".getBytes)))
     }
+
+    //contentRDD.cache()
+
     //将患者信息rdd转化为事实表
     val patientFactDF = contentRDD.map(res => (res(0), res(1), res(2), res(3), res(4), res(5), res(6), res(7)))
       .toDF("idCard", "genderId", "ageId", "addr", "inTimeId", "inClassId", "mainDocId", "outSickId")
+
     patientFactDF.show()
+
+    //插入到hive表，hive on spark集群环境下可用
+    //patientFactDF.write.mode("append").format("hive").insertInto("t_fact_patient")
 
     sparkContext.stop()
 

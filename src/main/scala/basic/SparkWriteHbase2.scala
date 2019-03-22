@@ -6,6 +6,7 @@ import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
 import org.apache.spark.{SparkConf, SparkContext}
 
 /**
+  * 测试类：与项目无关
   * spark将数据写入hbase
   * 法二：连接到hbase client的方法，但必须这样写，hbase配置不能些在外层
   */

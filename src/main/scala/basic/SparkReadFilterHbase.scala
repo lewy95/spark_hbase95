@@ -8,6 +8,9 @@ import org.apache.hadoop.hbase.protobuf.ProtobufUtil
 import org.apache.hadoop.hbase.util.{Base64, Bytes}
 import org.apache.spark.{SparkConf, SparkContext}
 
+/**
+  * 测试类，与项目无关
+  */
 object SparkReadFilterHbase {
   def main(args: Array[String]): Unit = {
     val sparkConf = new SparkConf().setMaster("local")

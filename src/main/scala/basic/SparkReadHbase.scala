@@ -5,6 +5,9 @@ import org.apache.hadoop.hbase.mapreduce.TableInputFormat
 import org.apache.hadoop.hbase.util.Bytes
 import org.apache.spark.{SparkConf, SparkContext}
 
+/**
+  * 测试类，与项目无关
+  */
 object SparkReadHbase {
   def main(args: Array[String]): Unit = {
     val sparkConf = new SparkConf().setMaster("local")

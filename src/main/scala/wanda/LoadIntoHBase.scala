@@ -14,7 +14,7 @@ object LoadIntoHBase {
     val sparkConf = new SparkConf().setAppName("loadIntoHbase").setMaster("local")
     val sparkContext = new SparkContext(sparkConf)
 
-    //获得xml文件
+    //从指定目录获得xml文件
     val wdTuple = sparkContext.wholeTextFiles("d://mywanda/emr1")
 
     wdTuple.foreachPartition {
@@ -22,6 +22,7 @@ object LoadIntoHBase {
         //创建hbaseConfig，配置hbase
         val hbaseConfig = HBaseConfiguration.create()
         //写入HBase，需要客户端连接zookeeper
+        //测试用的hbase单机环境
         hbaseConfig.set("hbase.zookeeper.property.clientPort", "2181")
         hbaseConfig.set("hbase.zookeeper.quorum", "hadoop01")
         //创建一个连接

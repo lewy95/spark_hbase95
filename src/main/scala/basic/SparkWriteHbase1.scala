@@ -9,6 +9,7 @@ import org.apache.hadoop.mapreduce.Job
 import org.apache.spark.{SparkConf, SparkContext}
 
 /**
+  * 测试类：与项目无关
   * spark将数据写入hbase
   * 法一：mapreduce的方式
   */
