@@ -7,6 +7,7 @@ import org.apache.hadoop.hbase.protobuf.ProtobufUtil
 import org.apache.hadoop.hbase.util.{Base64, Bytes}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.{SparkConf, SparkContext}
+import wanda.util.MysqlTrait
 
 import scala.collection.mutable.ArrayBuffer
 import scala.xml.XML
@@ -17,7 +18,7 @@ case class Patient(idCard: String, genderId: String, ageId: String, addrId: Stri
 /**
   * 解析患者必要信息，作为事实表字段
   */
-object ReadFromHbase {
+object ReadFromHbase extends MysqlTrait{
 
   def main(args: Array[String]): Unit = {
     val sparkConf = new SparkConf().setMaster("local")
@@ -27,7 +28,7 @@ object ReadFromHbase {
     val sparkSession = SparkSession.builder()
       .config(sparkConf)
       //.config("spark.sql.warehouse.dir", "file:///home/ofo/spark/spark-warehouse")
-      //.enableHiveSupport()
+      .enableHiveSupport()
       .getOrCreate()
     //导入隐式转换
     import sparkSession.implicits._
@@ -40,7 +41,7 @@ object ReadFromHbase {
     conf.set("hbase.zookeeper.property.clientPort", "2181")
     conf.set(TableInputFormat.INPUT_TABLE, tableName)
 
-    //设置扫描内容(住院病案文档，rowkey range：RN32_xxx)
+    //设置扫描内容(target：住院病案文档，rowkey range：RN32_xxx)
     val startRowKey = "RN32_001"
     val endRowKey = "RN33_001"
     //设置scan对象，让filter生效
@@ -72,8 +73,26 @@ object ReadFromHbase {
 
     patientFactDF.show()
 
+    //直接将数据插入到mysql
+    patientFactDF.write.mode("append").jdbc("jdbc:mysql://localhost/emr", "t_fact_patient", prop)
+
+    /*
     //插入到hive表，hive on spark集群环境下可用
-    //patientFactDF.write.mode("append").format("hive").insertInto("t_fact_patient")
+    sparkSession.sql("create database if not EXISTS wanda_emr")
+    sparkSession.sql("use wanda_emr")
+    //创建表
+    sparkSession.sql("create table if not exists t_fact_patient(" +
+      "idCard string, " +
+      "genderId string, " +
+      "ageId string, " +
+      "addr string, " +
+      "inTimeId string, " +
+      "inClassId string, " +
+      "mainDocId string, " +
+      "outSickId string) " )
+
+    patientFactDF.write.mode("append").format("hive").insertInto("t_fact_patient")
+    */
 
     sparkContext.stop()
 
